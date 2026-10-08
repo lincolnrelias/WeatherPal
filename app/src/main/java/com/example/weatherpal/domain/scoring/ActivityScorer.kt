@@ -1,6 +1,7 @@
 package com.example.weatherpal.domain.scoring
 
 import com.example.weatherpal.domain.model.*
+import com.example.weatherpal.domain.weather.*
 
 object ActivityScorer {
     internal fun outdoorTemperature(t: Double) =

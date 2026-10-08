@@ -40,21 +40,25 @@ class WeatherSnapshotTest(private val theme: String) {
     private val today = LocalDate.of(2026, 10, 8)
     private val updated = Instant.parse("2026-10-08T11:30:00Z")
     private val clock = Clock.fixed(Instant.parse("2026-10-08T12:00:00Z"), ZoneOffset.UTC)
-    private val lisbon = City(2267057, "Lisbon", "Lisbon", "Portugal", 38.72, -9.13, "Europe/Lisbon")
+    private val lisbon =
+        City(2267057, "Lisbon", "Lisbon", "Portugal", 38.72, -9.13, "Europe/Lisbon")
     private val porto = City(2735943, "Porto", "Porto", "Portugal", 41.15, -8.61, "Europe/Lisbon")
     private val networkFailure = AppFailure(FailureKind.NETWORK)
-    private val days = (0L..6L).map { offset ->
-        val date = today.plusDays(offset)
-        val weather = DailyWeather(date, 22.0 + offset, 0.0, 10.0, 0.0, 0.0)
-        ForecastDayUi(date, weather, ActivityScorer.rank(weather))
-    }
+    private val days =
+        (0L..6L).map { offset ->
+            val date = today.plusDays(offset)
+            val weather = DailyWeather(date, 22.0 + offset, 0.0, 10.0, 0.0, 0.0)
+            ForecastDayUi(date, weather, ActivityScorer.rank(weather))
+        }
     private val ready = ForecastContent.Ready(days, updated)
 
     companion object {
-        @JvmStatic @Parameters(name = "{0}")
+        @JvmStatic
+        @Parameters(name = "{0}")
         fun themes() = listOf(arrayOf("light"), arrayOf("dark"))
 
-        @JvmStatic @BeforeClass
+        @JvmStatic
+        @BeforeClass
         fun requireSnapshotTask() {
             // Ordinary unit tests stay fast and platform independent. Roborazzi's tasks set
             // these properties; invoking a snapshot test without a mode explicitly skips it.
@@ -105,15 +109,19 @@ class WeatherSnapshotTest(private val theme: String) {
     }
 
     private fun capture(name: String) {
-        compose.onRoot().captureRoboImage(
-            "$name-$theme.png",
-            roborazziOptions = RoborazziOptions(
-                compareOptions = RoborazziOptions.CompareOptions(
-                    changeThreshold = 0f,
-                    imageComparator = SimpleImageComparator(maxDistance = 0f),
-                ),
-            ),
-        )
+        compose
+            .onRoot()
+            .captureRoboImage(
+                "$name-$theme.png",
+                roborazziOptions =
+                    RoborazziOptions(
+                        compareOptions =
+                            RoborazziOptions.CompareOptions(
+                                changeThreshold = 0f,
+                                imageComparator = SimpleImageComparator(maxDistance = 0f),
+                            )
+                    ),
+            )
     }
 
     private fun search(state: SearchState) {
@@ -124,97 +132,132 @@ class WeatherSnapshotTest(private val theme: String) {
         content: ForecastContent = ready,
         refresh: RefreshStatus = RefreshStatus.Idle,
     ) {
-        render { ForecastScreen(ForecastState.Open(lisbon, today, content, refresh), clock, {}, {}) }
+        render {
+            ForecastScreen(ForecastState.Open(lisbon, today, content, refresh), clock, {}, {})
+        }
     }
 
-    @Test fun searchWelcome() {
+    @Test
+    fun searchWelcome() {
         search(SearchState())
         capture("search-welcome")
     }
 
-    @Test fun searchRecentPlaces() {
-        search(SearchState(recent = listOf(CachedCitySummary(lisbon, updated), CachedCitySummary(porto, updated))))
+    @Test
+    fun searchRecentPlaces() {
+        search(
+            SearchState(
+                recent =
+                    listOf(CachedCitySummary(lisbon, updated), CachedCitySummary(porto, updated))
+            )
+        )
         // Include the saved-city rows below the welcome photograph.
         compose.onNodeWithText("Your recent places").performScrollTo()
         settle()
         capture("search-recent-places")
     }
 
-    @Test fun searchResults() {
+    @Test
+    fun searchResults() {
         search(SearchState("Lis", SearchStatus.Results("Lis", listOf(lisbon, porto))))
         capture("search-results")
     }
 
-    @Test fun searchNoResults() {
+    @Test
+    fun searchNoResults() {
         search(SearchState("Atlantis", SearchStatus.Empty("Atlantis")))
         capture("search-no-results")
     }
 
-    @Test fun searchLoading() {
+    @Test
+    fun searchLoading() {
         search(SearchState("Lisbon", SearchStatus.Loading(1, "Lisbon")))
         capture("search-loading")
     }
 
-    @Test fun searchNetworkError() {
+    @Test
+    fun searchNetworkError() {
         search(SearchState("Lisbon", SearchStatus.Error("Lisbon", networkFailure)))
         capture("search-network-error")
     }
 
-    @Test fun searchRateLimited() {
-        val failure = AppFailure(FailureKind.RATE_LIMITED, retryAt = clock.instant().plusSeconds(30))
+    @Test
+    fun searchRateLimited() {
+        val failure =
+            AppFailure(FailureKind.RATE_LIMITED, retryAt = clock.instant().plusSeconds(30))
         search(SearchState("Lisbon", SearchStatus.Error("Lisbon", failure)))
         capture("search-rate-limited")
     }
 
-    @Test fun searchValidationError() {
+    @Test
+    fun searchValidationError() {
         search(SearchState("L", SearchStatus.Error("L", AppFailure(FailureKind.VALIDATION))))
         capture("search-validation-error")
     }
 
-    @Test fun forecastLoading() {
+    @Test
+    fun forecastLoading() {
         forecast(ForecastContent.InitialLoading)
         capture("forecast-loading")
     }
 
-    @Test fun forecastInitialError() {
+    @Test
+    fun forecastInitialError() {
         forecast(ForecastContent.InitialError(networkFailure))
         capture("forecast-initial-error")
     }
 
-    @Test fun forecastReady() {
+    @Test
+    fun forecastReady() {
         forecast()
         capture("forecast-ready")
     }
 
-    @Test fun forecastOffline() {
+    @Test
+    fun forecastOffline() {
         forecast(refresh = RefreshStatus.Failed(networkFailure))
         capture("forecast-offline")
     }
 
-    @Test fun forecastMissingDay() {
+    @Test
+    fun forecastMissingDay() {
         forecast(ready.copy(days = listOf(ForecastDayUi(today, null, emptyList())) + days.drop(1)))
         capture("forecast-missing-day")
     }
 
-    @Test fun forecastLargeText() {
+    @Test
+    fun forecastLargeText() {
         RuntimeEnvironment.setFontScale(2f)
         forecast()
         capture("forecast-large-text")
     }
 
-    @Test fun forecastLandscape() {
+    @Test
+    fun forecastLandscape() {
         qualifiers("w891dp-h411dp-land")
         forecast()
         capture("forecast-landscape")
     }
 
-    @Test fun activityCardsCollapsed() {
-        val labels = listOf(Suitability.VERY_FAVORABLE, Suitability.MIXED, Suitability.UNFAVORABLE, Suitability.INSUFFICIENT_DATA)
+    @Test
+    fun activityCardsCollapsed() {
+        val labels =
+            listOf(
+                Suitability.VERY_FAVORABLE,
+                Suitability.MIXED,
+                Suitability.UNFAVORABLE,
+                Suitability.INSUFFICIENT_DATA,
+            )
         render {
             Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Activity.entries.forEachIndexed { index, activity ->
                     ActivityCard(
-                        Recommendation(activity, null, labels[index], listOf(Reason(ReasonCode.MISSING_INPUTS))),
+                        Recommendation(
+                            activity,
+                            null,
+                            labels[index],
+                            listOf(Reason(ReasonCode.MISSING_INPUTS)),
+                        ),
                         index + 1,
                     )
                 }
@@ -223,7 +266,8 @@ class WeatherSnapshotTest(private val theme: String) {
         capture("activity-cards-collapsed")
     }
 
-    @Test fun activityCardExpanded() {
+    @Test
+    fun activityCardExpanded() {
         val surfing = days.first().recommendations.first { it.activity == Activity.SURFING }
         render { Column(Modifier.padding(20.dp)) { ActivityCard(surfing, 1) } }
         compose.onNodeWithText("Surfing").performClick()

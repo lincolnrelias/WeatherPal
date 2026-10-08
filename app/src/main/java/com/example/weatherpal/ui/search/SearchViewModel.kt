@@ -8,25 +8,6 @@ import java.time.Clock
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 
-sealed interface SearchStatus {
-    data object Idle : SearchStatus
-
-    data class Loading(val requestId: Long, val query: String) : SearchStatus
-
-    data class Results(val query: String, val cities: List<City>) : SearchStatus
-
-    data class Empty(val query: String) : SearchStatus
-
-    data class Error(val query: String, val failure: AppFailure) : SearchStatus
-}
-
-data class SearchState(
-    val query: String = "",
-    val status: SearchStatus = SearchStatus.Idle,
-    val recent: List<CachedCitySummary> = emptyList(),
-    val cacheFailure: AppFailure? = null,
-)
-
 class SearchViewModel(
     private val cities: CityRepository,
     private val weather: WeatherRepository,
@@ -46,17 +27,20 @@ class SearchViewModel(
 
     fun retryCachedCities() {
         if (cachedCities?.isActive == true) return
-        cachedCities = viewModelScope.launch(dispatchers.main) {
-            weather
-                .observeCachedCities()
-                .catch { e ->
-                    if (e is CancellationException) throw e
-                    mutable.update {
-                        it.copy(cacheFailure = AppFailure(FailureKind.STORAGE, e.message))
+        cachedCities =
+            viewModelScope.launch(dispatchers.main) {
+                weather
+                    .observeCachedCities()
+                    .catch { e ->
+                        if (e is CancellationException) throw e
+                        mutable.update {
+                            it.copy(cacheFailure = AppFailure(FailureKind.STORAGE, e.message))
+                        }
                     }
-                }
-                .collect { rows -> mutable.update { it.copy(recent = rows, cacheFailure = null) } }
-        }
+                    .collect { rows ->
+                        mutable.update { it.copy(recent = rows, cacheFailure = null) }
+                    }
+            }
     }
 
     fun edit(query: String) {

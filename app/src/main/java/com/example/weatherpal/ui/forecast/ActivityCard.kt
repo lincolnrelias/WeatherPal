@@ -18,7 +18,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
 import com.example.weatherpal.domain.model.*
-import com.example.weatherpal.ui.*
+import com.example.weatherpal.ui.components.*
+import com.example.weatherpal.ui.presentation.*
 
 @Composable
 internal fun ActivityCard(recommendation: Recommendation, rank: Int) {

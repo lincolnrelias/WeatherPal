@@ -19,7 +19,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.example.weatherpal.domain.model.*
-import com.example.weatherpal.ui.*
+import com.example.weatherpal.ui.components.*
+import com.example.weatherpal.ui.presentation.*
 import java.time.Clock
 
 @Composable

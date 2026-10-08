@@ -3,6 +3,7 @@ package com.example.weatherpal.data.repository
 import com.example.weatherpal.data.local.ForecastStore
 import com.example.weatherpal.data.remote.*
 import com.example.weatherpal.domain.model.*
+import com.example.weatherpal.domain.repository.RefreshOutcome
 import com.example.weatherpal.domain.repository.WeatherRepository
 import java.time.Clock
 import kotlinx.coroutines.*
@@ -19,6 +20,7 @@ class CachedWeatherRepository(
     private val startup = Mutex()
     private var initialized = false
     private val flightsLock = Mutex()
+
     private class Flight(val owner: Job) {
         val result = CompletableDeferred<RefreshOutcome>()
     }
@@ -47,25 +49,26 @@ class CachedWeatherRepository(
     override suspend fun refresh(city: City): RefreshOutcome {
         while (true) {
             currentCoroutineContext().ensureActive()
-            cooldown.currentFailure()?.let { return RefreshOutcome.Failed(it) }
+            cooldown.currentFailure()?.let {
+                return RefreshOutcome.Failed(it)
+            }
             var owner = false
             val caller = currentCoroutineContext().job
-            val flight = flightsLock.withLock {
-                flights[city.id]?.takeIf { it.owner.isActive }
-                    ?: Flight(caller).also {
-                        flights[city.id] = it
-                        owner = true
-                    }
-            }
+            val flight =
+                flightsLock.withLock {
+                    flights[city.id]?.takeIf { it.owner.isActive }
+                        ?: Flight(caller).also {
+                            flights[city.id] = it
+                            owner = true
+                        }
+                }
             if (owner) return runRefresh(city, flight)
             try {
                 return flight.result.await()
             } catch (e: CancellationException) {
                 // Only the owner went away. A live waiter must join/start a replacement.
                 currentCoroutineContext().ensureActive()
-                flightsLock.withLock {
-                    if (flights[city.id] === flight) flights.remove(city.id)
-                }
+                flightsLock.withLock { if (flights[city.id] === flight) flights.remove(city.id) }
             }
         }
     }

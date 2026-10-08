@@ -2,6 +2,7 @@ package com.example.weatherpal.data.remote
 
 import com.example.weatherpal.domain.model.*
 import com.example.weatherpal.domain.scoring.*
+import com.example.weatherpal.domain.weather.*
 import java.time.*
 import kotlinx.serialization.*
 import kotlinx.serialization.json.*

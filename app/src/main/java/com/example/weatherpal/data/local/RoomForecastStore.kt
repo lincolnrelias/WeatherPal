@@ -10,21 +10,6 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-interface ForecastStore {
-    suspend fun prune(policy: CachePolicy)
-
-    fun cities(): Flow<List<CachedCitySummary>>
-
-    fun forecast(id: Long): Flow<ForecastSnapshot?>
-
-    suspend fun commit(
-        city: City,
-        days: Map<LocalDate, DailyWeather>,
-        updated: Instant,
-        policy: CachePolicy,
-    ): Boolean
-}
-
 class RoomForecastStore(private val db: WeatherDatabase) : ForecastStore {
     private val writes = Mutex()
     private val dao = db.dao()

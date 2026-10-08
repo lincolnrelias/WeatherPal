@@ -22,7 +22,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
 import com.example.weatherpal.domain.model.*
-import com.example.weatherpal.ui.*
+import com.example.weatherpal.ui.components.*
+import com.example.weatherpal.ui.presentation.*
 import java.time.Clock
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -287,7 +288,9 @@ private fun DateCarousel(
             verticalAlignment = Alignment.Top,
         ) { index ->
             val day = ready.days[index]
-            holder.SaveableStateProvider("${state.city.id}-${day.date}") { DailyPage(day, ready, state.city) }
+            holder.SaveableStateProvider("${state.city.id}-${day.date}") {
+                DailyPage(day, ready, state.city)
+            }
         }
     }
 }
