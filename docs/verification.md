@@ -240,3 +240,43 @@ physical-device/TalkBack checks, and release/minified behavior remain unverified
 SavedStateHandle reconstruction tests establish serialization behavior, not
 complete OS process-death handling. Cooldowns intentionally reset with the app
 process. No dependency upgrades or database schema changes were introduced.
+
+## October 8, 2026 snapshot testing
+
+Added Roborazzi 1.39.0 and Robolectric 4.14.1 without upgrading production
+dependencies. `WeatherSnapshotTest` renders 17 scenarios in both themes, producing
+34 PNG baselines under `app/src/test/snapshots/`. Coverage includes search states,
+forecast states, offline content, missing data, landscape, 200% text size, all four
+activity images, and expanded card details. Fixtures use a plain Application,
+API 35 native graphics, fixed viewport/locale/timezone/clock, and controlled
+Compose animation time. No emulator or live services are required.
+
+Executed on Windows 11 with Android Studio JBR 21.0.6 and SDK 36:
+
+```powershell
+./gradlew.bat :app:recordRoborazziDebug --tests '*WeatherSnapshotTest*'
+./gradlew.bat :app:verifyRoborazziDebug --tests '*WeatherSnapshotTest*'
+./gradlew.bat :app:assembleDebug :app:verifyRoborazziDebug :app:lintDebug
+./gradlew.bat :app:testDebugUnitTest
+```
+
+Recording and a fresh verification passed all 34 snapshot cases. Reviewed both
+theme contact sheets and representative full-size images. The combined run
+passed **80 tests** (46 existing unit tests and 34 snapshot tests) with no failures
+or skips; debug assembly and lint also passed. Lint reported **0 errors / 30
+warnings**, including four new dependency-version advisories for the pinned test
+tools. Ordinary unit execution passed the 46 existing tests and skipped snapshot
+rendering as intended.
+
+Verified the failure path by changing one pixel in a light baseline and temporarily
+removing its dark counterpart. The two focused verification cases both failed:
+the changed image produced actual/comparison images, and the missing baseline
+was rejected. Both reference files were restored byte-for-byte in a `finally`
+block before the successful full verification.
+
+Android checks now includes a Windows Server 2022 / JDK 21 snapshot verification
+job and uploads reports/differences. The hosted workflow was not executed in this
+session; local checks establish Windows 11 behavior. Cross-OS rendering parity
+is not assumed. Connected tests were not rerun because application and device
+test sources are unchanged. Baseline review/update instructions are in
+`snapshot-testing.md`.

@@ -115,6 +115,7 @@ On resume and visible city-local midnight, reconcile the window, retain a still-
 ```powershell
 ./gradlew.bat :app:testDebugUnitTest
 ./gradlew.bat :app:connectedDebugAndroidTest
+./gradlew.bat :app:verifyRoborazziDebug --tests '*WeatherSnapshotTest*'
 ./gradlew.bat :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
 ```
 
@@ -124,7 +125,9 @@ The current suite contains **46 unit tests and 11 connected tests**. Recovery re
 
 Smoke test: install debug, search for Lisbon, open a forecast, change the selected date, and pull to refresh. Return to search and open the saved city with networking disabled: cached content should remain visible with a retry error. Re-enable networking and retry; the selected date should stay selected. Leave and immediately reopen during a refresh, then rotate the device. Confirm that loading ends and city/date remain correct. Storage failures and Retry-After are reproduced deterministically by the automated tests rather than by provoking the public service.
 
-Actual commands, counts, manual checks, environment limitations, and phase evidence are recorded in [docs/verification.md](docs/verification.md). Live API checks supplement deterministic fixtures; they are not test oracles. Full UI automation and snapshot tests are intentionally excluded.
+Visual snapshot tests cover 17 search, forecast, and activity-card scenarios in both themes, including landscape and large text. Roborazzi and Robolectric render deterministic fixtures on the JVM without an emulator. The Windows CI job verifies the 34 checked-in PNG baselines and uploads comparison reports. See [the snapshot testing guide](docs/snapshot-testing.md) for recording, reviewing, and verifying changes. Ordinary unit runs skip these rendering tests unless a Roborazzi mode is enabled.
+
+Actual commands, counts, manual checks, environment limitations, and phase evidence are recorded in [docs/verification.md](docs/verification.md). Live API checks supplement deterministic fixtures; they are not test oracles. Full UI automation remains outside the test scope.
 
 ## Assumptions, omissions, and production work
 

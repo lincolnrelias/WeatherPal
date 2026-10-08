@@ -4,6 +4,7 @@ plugins {
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.kotlin.kapt)
+    alias(libs.plugins.roborazzi)
 }
 
 android {
@@ -39,6 +40,19 @@ android {
     }
     buildFeatures { compose = true }
     sourceSets.getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
+        unitTests.all {
+            it.maxHeapSize = "2g"
+            it.systemProperty("robolectric.pixelCopyRenderMode", "hardware")
+        }
+    }
+}
+
+@OptIn(com.github.takahirom.roborazzi.ExperimentalRoborazziApi::class)
+roborazzi {
+    outputDir.set(file("src/test/snapshots"))
+    compare { outputDir.set(layout.buildDirectory.dir("outputs/roborazzi")) }
 }
 
 kapt { arguments { arg("room.schemaLocation", "$projectDir/schemas") } }
@@ -66,6 +80,11 @@ dependencies {
     testImplementation(libs.junit)
     testImplementation(libs.coroutines.test)
     testImplementation(libs.mockwebserver)
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.compose.ui.test)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.roborazzi)
+    testImplementation(libs.roborazzi.compose)
     androidTestImplementation(libs.room.testing)
     androidTestImplementation(libs.coroutines.test)
     androidTestImplementation(libs.androidx.junit)

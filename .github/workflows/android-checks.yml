@@ -30,3 +30,33 @@ jobs:
       - uses: gradle/actions/setup-gradle@v6
       - name: Build, unit tests, and lint
         run: bash ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug --no-daemon --console=plain
+
+  snapshots:
+    # Baselines are recorded on Windows. Native graphics can differ across host OSes.
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v4
+      - name: Install SDK packages
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Verify visual snapshots
+        run: ./gradlew.bat :app:verifyRoborazziDebug --tests '*WeatherSnapshotTest*' --no-daemon --console=plain
+      - name: Upload snapshot reports and differences
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-reports
+          if-no-files-found: ignore
+          path: |
+            app/build/reports/roborazzi/
+            app/build/reports/tests/testDebugUnitTest/
+            app/build/outputs/roborazzi/
+            app/build/test-results/roborazzi/
