@@ -130,3 +130,65 @@ heuristics and activity safety/availability are not validated by these tests.
 The connected runner removes its installed APKs during cleanup in this environment;
 the debug app is reinstalled afterward for local use. Live sample values are
 illustrations, not deterministic test expectations.
+
+## October 8, 2026 UI redesign
+
+Redesigned the search and forecast presentation with a coordinated light/dark
+palette, editorial typography, photographic welcomes and activity cards,
+clearer city navigation, a daily temperature timeline, a compact weather
+summary, and optional snow details. Activity cards start collapsed and animate
+open on tap. Their state stays with the activity and city/date, including after
+refresh, reordering, date navigation, and saved-state restoration.
+
+Executed:
+
+```powershell
+./gradlew.bat :app:assembleDebug :app:testDebugUnitTest :app:lintDebug :app:connectedDebugAndroidTest
+```
+
+- 27 unit tests passed with zero failures/errors.
+- 10 connected tests passed: the five existing Room tests and five new Compose
+  interaction tests. The new tests exercise all cards starting closed, revealing
+  and hiding explanations, retained expansion after ranking changes, saved-state
+  restoration, and independent per-date state when returning to a previous day.
+- Assembly and lint passed. Lint reported zero errors and 26 warnings, concerning
+  dependency/tool updates and kapt. Compose's testing BOM matches the existing
+  production Compose BOM; no production dependency versions were upgraded.
+- Subsequent presentation-only fixes for large text, landscape header density,
+  and dark selected-date contrast were compiled and linted again successfully.
+
+Manual API 36 / Medium_Phone walkthrough:
+
+- Submitted Lisbon, inspected disambiguated results, and opened Lisbon District,
+  Portugal. Opened the saved city again after reinstalling the debug build.
+- Confirmed photographic activity cards were initially closed; expanded Surfing
+  and inspected the input-based explanations and limitations. Other cards stayed
+  closed. All four activities remained reachable by scrolling.
+- Confirmed expanded details survived system theme changes, 1.3× and 2× text, and
+  portrait/landscape rotation. At 2× text, navigation and About remain visible;
+  weather metrics stack instead of breaking labels into narrow columns.
+- Inspected explicit dark colors and fixed the selected date temperature contrast.
+- Opened Snow details and verified median snow depth and snowfall, then closed it.
+- Original emulator settings were restored after the walkthrough: font 1.0,
+  light theme, portrait/automatic rotation, and the unset handwriting setting.
+- Reinstalled the final APK for local review. The four generated photographs are
+  bundled locally (about 1 MB total) and are visible in the offline test harness.
+
+Screenshots of the redesign are saved under `docs/screenshots/`. The previous
+implementation verification above is a historical record; the new focused
+Compose tests supplement its originally manual UI coverage. No physical device,
+minimum-API runtime, or complete TalkBack walkthrough was added in this session.
+Exact image prompts and asset paths are in `ui-redesign.md`.
+
+### Navigation follow-up
+
+Removed the forecast header's refresh button; pull-to-refresh remains available.
+When results are visible, both device Back and the toolbar Back control now clear
+the search and scroll to the welcome card, preserving recent places. Returning
+from a forecast still shows the preceding search results first.
+
+Assembly, all 28 unit tests, and lint passed. The new regression test verifies
+that dismissing results clears the saved query and preserves cached recent
+places. On the emulator, verified Back after scrolling results, the forecast-to-
+results-to-welcome sequence, and the absence of the refresh button. Updated the
+primary search, forecast, and activity screenshots and installed the final APK.

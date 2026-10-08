@@ -106,4 +106,10 @@ class SearchViewModel(
         if (state.value.status is SearchStatus.Loading)
             mutable.update { it.copy(status = SearchStatus.Idle) }
     }
+
+    fun dismissResults() {
+        cancelSearch()
+        saved["query"] = ""
+        mutable.update { it.copy(query = "", status = SearchStatus.Idle) }
+    }
 }

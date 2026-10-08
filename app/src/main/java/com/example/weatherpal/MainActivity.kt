@@ -5,19 +5,28 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.example.weatherpal.ui.*
 import com.example.weatherpal.ui.forecast.*
 import com.example.weatherpal.ui.search.*
 import com.example.weatherpal.ui.theme.WeatherPalTheme
@@ -46,13 +55,28 @@ class MainActivity : ComponentActivity() {
                     owner.lifecycle.addObserver(observer)
                     onDispose { owner.lifecycle.removeObserver(observer) }
                 }
-                BackHandler(enabled = forecastState.city != null) { forecast.leave() }
+                val keyboard = LocalSoftwareKeyboardController.current
+                val canGoBack =
+                    forecastState.city != null || searchState.status is SearchStatus.Results
+                val onBack = {
+                    keyboard?.hide()
+                    if (forecastState.city != null) forecast.leave() else search.dismissResults()
+                }
+                BackHandler(enabled = canGoBack, onBack = onBack)
                 Scaffold(
                     topBar = {
-                        AppBar(forecastState.city != null, { forecast.leave() }, { about = true })
+                        AppBar(
+                            canGoBack,
+                            onBack,
+                            { about = true },
+                            if (forecastState.city != null) "Cities" else "Back",
+                        )
                     }
                 ) { padding ->
-                    Box(Modifier.fillMaxSize().padding(padding)) {
+                    Box(
+                        Modifier.fillMaxSize().padding(padding),
+                        contentAlignment = Alignment.TopCenter,
+                    ) {
                         if (forecastState.city == null)
                             SearchScreen(
                                 searchState,
@@ -79,14 +103,59 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AppBar(canGoBack: Boolean, onBack: () -> Unit, onAbout: () -> Unit) {
-    TopAppBar(
-        title = { Text("WeatherPal") },
-        navigationIcon = { if (canGoBack) TextButton(onClick = onBack) { Text("Search") } },
-        actions = { TextButton(onClick = onAbout) { Text("About") } },
-    )
+private fun AppBar(canGoBack: Boolean, onBack: () -> Unit, onAbout: () -> Unit, backLabel: String) {
+    val shortViewport = LocalConfiguration.current.screenHeightDp < 500
+    Box(Modifier.fillMaxWidth().statusBarsPadding(), contentAlignment = Alignment.Center) {
+        Row(
+            Modifier.widthIn(max = 840.dp)
+                .fillMaxWidth()
+                .heightIn(min = if (shortViewport) 52.dp else 68.dp)
+                .padding(horizontal = 20.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            if (canGoBack) {
+                TextButton(onClick = onBack, contentPadding = PaddingValues(horizontal = 4.dp)) {
+                    AppIcon(Symbol.BACK, Modifier.size(20.dp))
+                    Spacer(Modifier.width(7.dp))
+                    Text(backLabel)
+                }
+                Text(
+                    "WeatherPal",
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium,
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            } else {
+                Box(
+                    Modifier.size(36.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.primary),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    AppIcon(Symbol.SUN, Modifier.size(23.dp), MaterialTheme.colorScheme.onPrimary)
+                }
+                Text(
+                    "WeatherPal",
+                    Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            IconButton(onClick = onAbout) {
+                AppIcon(
+                    Symbol.INFO,
+                    Modifier.size(21.dp),
+                    MaterialTheme.colorScheme.onSurfaceVariant,
+                    "About WeatherPal",
+                )
+            }
+        }
+    }
 }
 
 @Composable

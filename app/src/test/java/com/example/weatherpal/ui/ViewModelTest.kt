@@ -134,6 +134,37 @@ class ViewModelTest {
     }
 
     @Test
+    fun dismissingSearchResultsReturnsToStartAndKeepsRecentPlaces() = scenario {
+        weather.snapshots.value = mapOf(city.id to snapshot())
+        val saved = SavedStateHandle()
+        val vm =
+            SearchViewModel(
+                    object : CityRepository {
+                        override suspend fun search(query: String) =
+                            SearchOutcome.Success(listOf(city))
+                    },
+                    weather,
+                    clock,
+                    dispatchers,
+                    saved,
+                )
+                .also { viewModels += it }
+        vm.edit("Berlin")
+        vm.submit()
+        runCurrent()
+        assertTrue(vm.state.value.status is SearchStatus.Results)
+        val recent = vm.state.value.recent
+        assertEquals(listOf(city), recent.map { it.city })
+
+        vm.dismissResults()
+
+        assertEquals(SearchStatus.Idle, vm.state.value.status)
+        assertEquals("", vm.state.value.query)
+        assertEquals("", saved.get<String>("query"))
+        assertEquals(recent, vm.state.value.recent)
+    }
+
+    @Test
     fun searchRetryUsesSubmittedTextAndRateLimitBlocksRequests() = scenario {
         val queries = mutableListOf<String>()
         var failure = AppFailure(FailureKind.NETWORK)

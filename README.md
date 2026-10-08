@@ -1,8 +1,10 @@
 # WeatherPal
 
-Native Android city search and seven-day weather-based activity rankings, implemented from [the agreed specification](docs/implementation-specification.md). Search explicitly, choose a disambiguated city, and browse skiing, surfing, outdoor sightseeing, and indoor sightseeing by city-local date. Recent cached cities work offline. Device light/dark mode, pull-to-refresh, and date-preserving updates are included.
+Native Android city search and seven-day weather-based activity rankings, implemented from [the agreed specification](docs/implementation-specification.md). Search explicitly, choose a disambiguated city, and browse skiing, surfing, outdoor sightseeing, and indoor sightseeing by city-local date. Recent cached cities work offline. Device light/dark mode, pull-to-refresh, and date-preserving updates are included. The redesigned interface adds an editorial travel aesthetic, clearer weather summaries, and photographic activity cards that start collapsed and expand on tap.
 
-<img src="docs/screenshots/forecast.png" width="320" alt="WeatherPal showing a future date, weather summary, and ranked activities in Tokyo">
+<img src="docs/screenshots/forecast.png" width="320" alt="WeatherPal showing the redesigned weather summary and collapsed activity photography">
+
+Design decisions, bundled image assets, and generation prompts are recorded in [the UI redesign notes](docs/ui-redesign.md).
 
 ## Build and run
 
@@ -101,13 +103,13 @@ On resume and visible city-local midnight, reconcile the window, retain a still-
 ./gradlew.bat :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
 ```
 
-The connected suite requires a running API 24+ emulator/device visible to adb. Tests use JUnit, coroutines-test, handwritten fakes, MockWebServer, and focused Room instrumentation. They cover score thresholds, labels, worked examples, missing data, complementarity, medians/DST, URL parameters, response validation, transport recovery, cache eviction/rollback/selective writes/coherence/persistence, submission identity, cancellation, refresh preservation, saved state, and rollover. Coroutine timing uses injected dispatchers/Clock and virtual time rather than real sleeps.
+The connected suite requires a running API 24+ emulator/device visible to adb. Tests use JUnit, coroutines-test, handwritten fakes, MockWebServer, focused Room instrumentation, and Compose UI tests. They cover score thresholds, labels, worked examples, missing data, complementarity, medians/DST, URL parameters, response validation, transport recovery, cache eviction/rollback/selective writes/coherence/persistence, submission identity, cancellation, refresh preservation, saved state, rollover, and activity disclosure across ranking changes and date navigation. Coroutine timing uses injected dispatchers/Clock and virtual time rather than real sleeps.
 
 Actual commands, counts, manual checks, environment limitations, and phase evidence are recorded in [docs/verification.md](docs/verification.md). Live API checks supplement deterministic fixtures; they are not test oracles. Full UI automation and snapshot tests are intentionally excluded.
 
 ## Assumptions, omissions, and production work
 
-English-only interface, one Android app module, manual DI, public APIs, device-clock recency, no background sync service, no live/debounced search, no GPS, no geocoding cache, no theme toggle, and no ocean/resort integrations. Advanced animation and visual refinement (optional phase 8) are deferred. No GitHub publication or submission has been performed.
+English-only interface, one Android app module, manual DI, public APIs, device-clock recency, no background sync service, no live/debounced search, no GPS, no geocoding cache, no theme toggle, and no ocean/resort integrations. The October 8 visual refinement includes animated card disclosure, explicit light/dark palettes, adaptive headers, and bundled illustrative imagery. No GitHub publication or submission has been performed.
 
 Before production: validate scoring with domain experts and users; add actual activity/ocean/resort context if appropriate; account for forecast uncertainty; consider server-authoritative update time; review API usage/licensing and request budgets; implement/test schema migrations, release signing/minification, backup/security policies, localization, dependency upgrades, broader device/accessibility coverage, and monitoring. The small unit/instrumented scope does not establish complete UI coverage.
 
