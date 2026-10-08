@@ -29,6 +29,7 @@ fun SearchScreen(
     onEdit: (String) -> Unit,
     onSubmit: () -> Unit,
     onRetry: () -> Unit,
+    onRetryCachedCities: () -> Unit,
     onCity: (City) -> Unit,
 ) {
     val keyboard = LocalSoftwareKeyboardController.current
@@ -196,11 +197,9 @@ fun SearchScreen(
         }
         state.cacheFailure?.let { failure ->
             item {
-                Text(
-                    failure.message(),
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                StatusPanel("Recent places are unavailable", failure.message()) {
+                    TextButton(onClick = onRetryCachedCities) { Text("Retry recent places") }
+                }
             }
         }
         item {

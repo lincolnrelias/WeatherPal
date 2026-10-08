@@ -86,6 +86,120 @@ class RepositoryTest {
     private val days = mapOf(date to DailyWeather(date, 22.0, 0.0, 10.0, 0.0, 0.0))
 
     @Test
+    fun liveWaiterReplacesCancelledOwnerAfterDelayedCleanup() = runTest {
+        val cleanup = CompletableDeferred<Unit>()
+        val store = MemoryStore()
+        var calls = 0
+        val repo = CachedWeatherRepository(object : WeatherRemote {
+            override suspend fun fetch(city: City): Map<LocalDate, DailyWeather> {
+                if (++calls == 1) {
+                    try { awaitCancellation() }
+                    finally { withContext(NonCancellable) { cleanup.await() } }
+                }
+                return days
+            }
+        }, store, MutableClock(), CachePolicy())
+        val owner = async { repo.refresh(city) }
+        runCurrent()
+        val waiter = async { repo.refresh(city) }
+        runCurrent()
+        owner.cancel()
+        runCurrent()
+        assertFalse(waiter.isCompleted)
+        cleanup.complete(Unit)
+        assertEquals(RefreshOutcome.Success(true), waiter.await())
+        owner.join()
+        assertTrue(owner.isCancelled)
+        assertEquals(2, calls)
+        assertEquals(1, store.commits)
+    }
+
+    @Test
+    fun reentryStartsReplacementBeforeOldCleanupAndOldOwnerCannotRemoveIt() = runTest {
+        val cleanup = CompletableDeferred<Unit>()
+        val response = CompletableDeferred<Unit>()
+        val store = MemoryStore()
+        var calls = 0
+        val repo = CachedWeatherRepository(object : WeatherRemote {
+            override suspend fun fetch(city: City): Map<LocalDate, DailyWeather> {
+                if (++calls == 1) {
+                    try { awaitCancellation() }
+                    finally { withContext(NonCancellable) { cleanup.await() } }
+                }
+                response.await()
+                return days
+            }
+        }, store, MutableClock(), CachePolicy())
+        val owner = async { repo.refresh(city) }
+        runCurrent()
+        owner.cancel()
+        runCurrent()
+        val replacement = async { repo.refresh(city) }
+        runCurrent()
+        assertEquals(2, calls)
+        cleanup.complete(Unit)
+        owner.join()
+        val waiter = async { repo.refresh(city) }
+        runCurrent()
+        assertEquals(2, calls)
+        response.complete(Unit)
+        assertEquals(replacement.await(), waiter.await())
+        assertEquals(1, store.commits)
+    }
+
+    @Test
+    fun cancellingOnlyWaiterLeavesOwnerAndOtherWaitersRunning() = runTest {
+        val response = CompletableDeferred<Unit>()
+        val store = MemoryStore()
+        var calls = 0
+        val repo = CachedWeatherRepository(object : WeatherRemote {
+            override suspend fun fetch(city: City): Map<LocalDate, DailyWeather> {
+                calls++
+                response.await()
+                return days
+            }
+        }, store, MutableClock(), CachePolicy())
+        val owner = async { repo.refresh(city) }
+        runCurrent()
+        val waiter = async { repo.refresh(city) }
+        val other = async { repo.refresh(city) }
+        runCurrent()
+        waiter.cancelAndJoin()
+        response.complete(Unit)
+        assertEquals(RefreshOutcome.Success(true), owner.await())
+        assertEquals(owner.await(), other.await())
+        assertEquals(1, calls)
+        assertEquals(1, store.commits)
+    }
+
+    @Test
+    fun providerCooldownBlocksEveryCityUntilExactDeadlineAndPreservesCache() = runTest {
+        val clock = MutableClock()
+        val store = MemoryStore()
+        store.commit(city, days, clock.now, CachePolicy())
+        val cached = store.values.value
+        val failure = AppFailure(FailureKind.RATE_LIMITED, retryAt = clock.now.plusSeconds(60))
+        var calls = 0
+        val repo = CachedWeatherRepository(object : WeatherRemote {
+            override suspend fun fetch(city: City): Map<LocalDate, DailyWeather> {
+                if (++calls == 1) throw DataFailure(failure)
+                return days
+            }
+        }, store, clock, CachePolicy())
+        assertEquals(RefreshOutcome.Failed(failure), repo.refresh(city))
+        assertEquals(RefreshOutcome.Failed(failure), repo.refresh(city))
+        assertEquals(RefreshOutcome.Failed(failure), repo.refresh(city.copy(id = 2)))
+        clock.now = failure.retryAt!!.minusNanos(1)
+        assertEquals(RefreshOutcome.Failed(failure), repo.refresh(city.copy(id = 2)))
+        assertEquals(1, calls)
+        assertEquals(cached, store.values.value)
+        clock.now = failure.retryAt
+        assertEquals(RefreshOutcome.Success(true), repo.refresh(city.copy(id = 2)))
+        assertEquals(2, calls)
+        assertEquals(2, store.commits)
+    }
+
+    @Test
     fun deduplicatesSameCityAndUpdatesUnchangedTimestamp() = runTest {
         val clock = MutableClock()
         val store = MemoryStore()

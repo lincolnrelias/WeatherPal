@@ -1,7 +1,7 @@
 package com.example.weatherpal.ui.search
 
 import androidx.lifecycle.*
-import com.example.weatherpal.di.AppDispatchers
+import com.example.weatherpal.core.AppDispatchers
 import com.example.weatherpal.domain.model.*
 import com.example.weatherpal.domain.repository.*
 import java.time.Clock
@@ -38,9 +38,15 @@ class SearchViewModel(
     val state = mutable.asStateFlow()
     private var request: Job? = null
     private var requestId = 0L
+    private var cachedCities: Job? = null
 
     init {
-        viewModelScope.launch(dispatchers.main) {
+        retryCachedCities()
+    }
+
+    fun retryCachedCities() {
+        if (cachedCities?.isActive == true) return
+        cachedCities = viewModelScope.launch(dispatchers.main) {
             weather
                 .observeCachedCities()
                 .catch { e ->

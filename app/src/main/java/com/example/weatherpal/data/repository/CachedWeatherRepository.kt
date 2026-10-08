@@ -4,7 +4,6 @@ import com.example.weatherpal.data.local.ForecastStore
 import com.example.weatherpal.data.remote.*
 import com.example.weatherpal.domain.model.*
 import com.example.weatherpal.domain.repository.WeatherRepository
-import com.example.weatherpal.domain.scoring.ActivityScorer
 import java.time.Clock
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
@@ -20,7 +19,12 @@ class CachedWeatherRepository(
     private val startup = Mutex()
     private var initialized = false
     private val flightsLock = Mutex()
-    private val flights = mutableMapOf<Long, CompletableDeferred<RefreshOutcome>>()
+    private class Flight(val owner: Job) {
+        val result = CompletableDeferred<RefreshOutcome>()
+    }
+
+    private val flights = mutableMapOf<Long, Flight>()
+    private val cooldown = RequestCooldown(clock)
 
     private suspend fun initialize() =
         startup.withLock {
@@ -41,16 +45,32 @@ class CachedWeatherRepository(
     }
 
     override suspend fun refresh(city: City): RefreshOutcome {
-        var owner = false
-        val flight =
-            flightsLock.withLock {
-                flights[city.id]
-                    ?: CompletableDeferred<RefreshOutcome>().also {
+        while (true) {
+            currentCoroutineContext().ensureActive()
+            cooldown.currentFailure()?.let { return RefreshOutcome.Failed(it) }
+            var owner = false
+            val caller = currentCoroutineContext().job
+            val flight = flightsLock.withLock {
+                flights[city.id]?.takeIf { it.owner.isActive }
+                    ?: Flight(caller).also {
                         flights[city.id] = it
                         owner = true
                     }
             }
-        if (!owner) return flight.await()
+            if (owner) return runRefresh(city, flight)
+            try {
+                return flight.result.await()
+            } catch (e: CancellationException) {
+                // Only the owner went away. A live waiter must join/start a replacement.
+                currentCoroutineContext().ensureActive()
+                flightsLock.withLock {
+                    if (flights[city.id] === flight) flights.remove(city.id)
+                }
+            }
+        }
+    }
+
+    private suspend fun runRefresh(city: City, flight: Flight): RefreshOutcome {
         try {
             val result =
                 try {
@@ -61,8 +81,8 @@ class CachedWeatherRepository(
                     } catch (e: Exception) {
                         throw DataFailure(AppFailure(FailureKind.STORAGE, e.message))
                     }
+                    cooldown.currentFailure()?.let { throw DataFailure(it) }
                     val days = remote.fetch(city)
-                    days.values.forEach { ActivityScorer.rank(it) }
                     currentCoroutineContext().ensureActive()
                     val changed =
                         try {
@@ -76,12 +96,14 @@ class CachedWeatherRepository(
                 } catch (e: CancellationException) {
                     throw e
                 } catch (e: Exception) {
-                    RefreshOutcome.Failed(failureOf(e, clock))
+                    val failure = failureOf(e, clock)
+                    cooldown.record(failure)
+                    RefreshOutcome.Failed(failure)
                 }
-            flight.complete(result)
+            flight.result.complete(result)
             return result
         } catch (e: CancellationException) {
-            flight.cancel(e)
+            flight.result.cancel(e)
             throw e
         } finally {
             withContext(NonCancellable) {

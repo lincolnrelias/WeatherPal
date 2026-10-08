@@ -42,6 +42,7 @@ class MainActivity : ComponentActivity() {
                 val forecast: ForecastViewModel = viewModel(factory = container.factory)
                 val searchState by search.state.collectAsStateWithLifecycle()
                 val forecastState by forecast.state.collectAsStateWithLifecycle()
+                val openForecast = forecastState as? ForecastState.Open
                 var about by remember { mutableStateOf(false) }
                 val owner = LocalLifecycleOwner.current
                 DisposableEffect(owner, forecast) {
@@ -57,10 +58,10 @@ class MainActivity : ComponentActivity() {
                 }
                 val keyboard = LocalSoftwareKeyboardController.current
                 val canGoBack =
-                    forecastState.city != null || searchState.status is SearchStatus.Results
+                    openForecast != null || searchState.status is SearchStatus.Results
                 val onBack = {
                     keyboard?.hide()
-                    if (forecastState.city != null) forecast.leave() else search.dismissResults()
+                    if (openForecast != null) forecast.leave() else search.dismissResults()
                 }
                 BackHandler(enabled = canGoBack, onBack = onBack)
                 Scaffold(
@@ -69,7 +70,7 @@ class MainActivity : ComponentActivity() {
                             canGoBack,
                             onBack,
                             { about = true },
-                            if (forecastState.city != null) "Cities" else "Back",
+                            if (openForecast != null) "Cities" else "Back",
                         )
                     }
                 ) { padding ->
@@ -77,20 +78,21 @@ class MainActivity : ComponentActivity() {
                         Modifier.fillMaxSize().padding(padding),
                         contentAlignment = Alignment.TopCenter,
                     ) {
-                        if (forecastState.city == null)
+                        if (openForecast == null)
                             SearchScreen(
                                 searchState,
                                 container.clock,
                                 search::edit,
                                 search::submit,
                                 search::retry,
+                                search::retryCachedCities,
                             ) { city ->
                                 search.cancelSearch()
                                 forecast.open(city)
                             }
                         else
                             ForecastScreen(
-                                forecastState,
+                                openForecast,
                                 container.clock,
                                 forecast::select,
                                 forecast::refresh,

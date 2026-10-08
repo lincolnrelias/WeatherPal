@@ -42,6 +42,7 @@ fun AppFailure.message() =
         FailureKind.UNUSABLE_FORECAST ->
             "No usable forecast is available for these dates. Please retry."
         FailureKind.STORAGE -> "Couldn’t read or save the forecast on this device. Please retry."
+        FailureKind.CANCELLED -> "The refresh was interrupted. Please retry."
     }
 
 fun reasonText(reason: Reason, activity: Activity): String =
@@ -122,22 +123,23 @@ fun reasonText(reason: Reason, activity: Activity): String =
 fun retrySeconds(failure: AppFailure?, clock: Clock): Long {
     val remaining by
         produceState(
-            failure
-                ?.retryAt
-                ?.let { (Duration.between(clock.instant(), it).toMillis() + 999) / 1000 }
-                ?.coerceAtLeast(0) ?: 0L,
+            remainingRetrySeconds(failure, clock),
             failure?.retryAt,
+            clock,
         ) {
             do {
-                value =
-                    failure
-                        ?.retryAt
-                        ?.let { (Duration.between(clock.instant(), it).toMillis() + 999) / 1000 }
-                        ?.coerceAtLeast(0) ?: 0
+                value = remainingRetrySeconds(failure, clock)
                 if (value > 0) delay(1000)
             } while (value > 0)
         }
     return remaining
+}
+
+fun remainingRetrySeconds(failure: AppFailure?, clock: Clock): Long {
+    val deadline = failure?.retryAt ?: return 0
+    val remaining = Duration.between(clock.instant(), deadline)
+    return if (remaining.isNegative || remaining.isZero) 0
+        else remaining.seconds + if (remaining.nano > 0) 1 else 0
 }
 
 @Composable

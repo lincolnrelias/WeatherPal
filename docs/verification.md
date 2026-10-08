@@ -192,3 +192,51 @@ that dismissing results clears the saved query and preserves cached recent
 places. On the emulator, verified Back after scrolling results, the forecast-to-
 results-to-welcome sequence, and the absence of the refresh button. Updated the
 primary search, forecast, and activity screenshots and installed the final APK.
+
+## October 8, 2026 engineering-review adjustments
+
+Implemented the recovery fixes and structural adjustments from
+`android-engineering-review.md`:
+
+- Refreshes track the owning coroutine. Active waiters recover from owner
+  cancellation, re-entry replaces abandoned work before cleanup ends, and
+  cancelling a waiter leaves other consumers running. Old cleanup cannot remove
+  a replacement. The ViewModel exposes a recoverable error if shared work is
+  cancelled while its own request remains active.
+- Recent places have an independent retry control. Failed reads preserve prior
+  shortcuts; successful re-collection clears the error and resumes updates.
+  Forecast retry restarts failed observation without duplicating refresh work.
+- Forecast and geocoding repositories retain independent process-scoped
+  Retry-After deadlines. Navigation, different cities, and changed queries cannot
+  bypass an active cooldown; requests resume at the exact deadline.
+- Forecast state explicitly distinguishes Closed/Open and owns city/selection
+  once. Named saved-state fields support legacy restoration and invalid-date
+  fallback. Remote responsibilities were split, the dispatcher contract moved
+  out of DI, and redundant scoring/unused dispatcher fields were removed.
+- An immediate-dispatcher regression verifies that observation/refresh jobs are
+  assigned before execution, preventing re-entry and stale job references.
+
+Executed with Android Studio JBR 21.0.6 and the existing Android 16 / API 36
+Medium_Phone emulator:
+
+```powershell
+./gradlew.bat :app:assembleDebug :app:testDebugUnitTest :app:lintDebug :app:connectedDebugAndroidTest
+```
+
+All checks passed: **46 unit tests**, **11 connected tests**, and lint with
+**0 errors / 26 existing warnings**. Unit totals are scoring 7, remote 10,
+repository 7, ViewModel 19, and presentation 3. Connected coverage retains all
+five Room selective-write/transaction tests and five activity-card tests, plus
+the recent-places retry control. No tests failed or were skipped. The final
+debug APK was reinstalled and launched successfully after connected-test cleanup.
+
+`.github/workflows/android-checks.yml` configures debug assembly, unit tests, and
+lint for pushes/pull requests with JDK 21 and SDK 36. Its commands passed locally;
+the hosted GitHub job has not been executed in this session. The README includes
+the resulting ownership/recovery/cooldown contracts and a manual smoke recipe.
+
+Minimum-API 24/25 runtime coverage, real end-to-end process-death recovery,
+physical-device/TalkBack checks, and release/minified behavior remain unverified.
+SavedStateHandle reconstruction tests establish serialization behavior, not
+complete OS process-death handling. Cooldowns intentionally reset with the app
+process. No dependency upgrades or database schema changes were introduced.

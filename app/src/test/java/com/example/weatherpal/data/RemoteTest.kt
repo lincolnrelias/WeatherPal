@@ -1,6 +1,7 @@
 package com.example.weatherpal.data
 
 import com.example.weatherpal.data.remote.*
+import com.example.weatherpal.data.repository.RemoteCityRepository
 import com.example.weatherpal.domain.model.*
 import java.time.*
 import kotlinx.coroutines.*
@@ -20,7 +21,67 @@ class RemoteTest {
         mapForecast(ApiFactory.json.decodeFromString<ForecastDto>(json), city, clock)
 
     @Test
+    fun geocodingCooldownSurvivesChangedQueryWhileForecastHostRemainsAvailable() = runTest {
+        val clock = MutableClock()
+        val server = MockWebServer()
+        server.start()
+        try {
+            val retrofit = ApiFactory.retrofit(server.url("/").toString(), ApiFactory.client())
+            val repo = RemoteCityRepository(retrofit.create(GeocodingService::class.java), clock)
+            server.enqueue(MockResponse().setResponseCode(429).setHeader("Retry-After", "60"))
+            val failure = (repo.search("Berlin") as SearchOutcome.Failed).failure
+            assertEquals(failure, (repo.search("Paris") as SearchOutcome.Failed).failure)
+            assertEquals(1, server.requestCount)
+            server.enqueue(MockResponse().setBody(fixture()))
+            val weather = com.example.weatherpal.data.repository.CachedWeatherRepository(
+                OpenMeteoRemote(retrofit.create(ForecastService::class.java), clock),
+                MemoryStore(), clock, CachePolicy(),
+            )
+            assertTrue(weather.refresh(city) is RefreshOutcome.Success)
+            clock.now = failure.retryAt!!.minusNanos(1)
+            assertTrue(repo.search("Tokyo") is SearchOutcome.Failed)
+            assertEquals(2, server.requestCount)
+            clock.now = failure.retryAt
+            server.enqueue(MockResponse().setBody("{}"))
+            assertEquals(SearchOutcome.Success(emptyList<City>()), repo.search("Tokyo"))
+            assertEquals(3, server.requestCount)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun httpDateRetryAfterAndMissingDeadlineRemainExplicit() = runTest {
+        val server = MockWebServer()
+        server.start()
+        try {
+            val repo = RemoteCityRepository(
+                ApiFactory.retrofit(server.url("/").toString(), ApiFactory.client())
+                    .create(GeocodingService::class.java), clock,
+            )
+            val deadline = clock.instant().plusSeconds(60)
+            val header = java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME
+                .format(deadline.atZone(ZoneOffset.UTC))
+            server.enqueue(MockResponse().setResponseCode(429).setHeader("Retry-After", header))
+            assertEquals(deadline, (repo.search("Berlin") as SearchOutcome.Failed).failure.retryAt)
+            assertEquals(deadline, (repo.search("Paris") as SearchOutcome.Failed).failure.retryAt)
+            assertEquals(1, server.requestCount)
+            val independent = RemoteCityRepository(
+                ApiFactory.retrofit(server.url("/").toString(), ApiFactory.client())
+                    .create(GeocodingService::class.java), clock,
+            )
+            server.enqueue(MockResponse().setResponseCode(429))
+            assertNull((independent.search("Berlin") as SearchOutcome.Failed).failure.retryAt)
+            server.enqueue(MockResponse().setBody("{}"))
+            assertTrue(independent.search("Berlin") is SearchOutcome.Success)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
     fun geocodingQueryEncodingAndFiltering() = runTest {
+        val clock = MutableClock()
         val server = MockWebServer()
         server.start()
         try {
@@ -46,6 +107,7 @@ class RemoteTest {
             val failure = (repo.search("Berlin") as SearchOutcome.Failed).failure
             assertEquals(FailureKind.RATE_LIMITED, failure.kind)
             assertEquals(clock.instant().plusSeconds(60), failure.retryAt)
+            clock.now = clock.now.plusSeconds(60)
             server.enqueue(MockResponse().setResponseCode(500))
             assertEquals(
                 FailureKind.HTTP,

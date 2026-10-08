@@ -108,7 +108,7 @@ class ActivityCardInstrumentedTest {
         compose.setContent {
             WeatherPalTheme {
                 ForecastScreen(
-                    ForecastState(city, ForecastContent.Ready(city, days, selected, Instant.EPOCH)),
+                    ForecastState.Open(city, selected, ForecastContent.Ready(days, Instant.EPOCH)),
                     Clock.fixed(Instant.parse("2026-10-08T12:00:00Z"), ZoneOffset.UTC),
                     { selected = it },
                     {},

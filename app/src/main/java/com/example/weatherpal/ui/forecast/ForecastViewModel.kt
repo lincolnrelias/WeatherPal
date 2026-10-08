@@ -1,7 +1,7 @@
 package com.example.weatherpal.ui.forecast
 
 import androidx.lifecycle.*
-import com.example.weatherpal.di.AppDispatchers
+import com.example.weatherpal.core.AppDispatchers
 import com.example.weatherpal.domain.model.*
 import com.example.weatherpal.domain.repository.WeatherRepository
 import com.example.weatherpal.domain.scoring.*
@@ -16,196 +16,173 @@ data class ForecastDayUi(
 )
 
 sealed interface ForecastContent {
-    data class InitialLoading(val city: City) : ForecastContent
+    data object InitialLoading : ForecastContent
 
-    data class InitialError(val city: City, val failure: AppFailure) : ForecastContent
+    data class InitialError(val failure: AppFailure) : ForecastContent
 
     data class Ready(
-        val city: City,
         val days: List<ForecastDayUi>,
-        val selectedDate: LocalDate,
         val lastSuccessfulUpdate: Instant,
     ) : ForecastContent
 }
 
 sealed interface RefreshStatus {
     data object Idle : RefreshStatus
-
     data object Refreshing : RefreshStatus
-
     data class Failed(val failure: AppFailure) : RefreshStatus
 }
 
-data class ForecastState(
-    val city: City? = null,
-    val content: ForecastContent? = null,
-    val refresh: RefreshStatus = RefreshStatus.Idle,
-)
+sealed interface ForecastState {
+    data object Closed : ForecastState
+
+    data class Open(
+        val city: City,
+        val selectedDate: LocalDate,
+        val content: ForecastContent = ForecastContent.InitialLoading,
+        val refresh: RefreshStatus = RefreshStatus.Idle,
+    ) : ForecastState
+}
 
 class ForecastViewModel(
     private val repository: WeatherRepository,
     private val clock: Clock,
     private val dispatchers: AppDispatchers,
-    private val saved: SavedStateHandle,
+    saved: SavedStateHandle,
 ) : ViewModel() {
-    private val mutable = MutableStateFlow(ForecastState())
+    private val savedState = ForecastSavedState(saved)
+    private val mutable = MutableStateFlow<ForecastState>(ForecastState.Closed)
     val state = mutable.asStateFlow()
+    private val current: ForecastState.Open?
+        get() = state.value as? ForecastState.Open
     private var collection: Job? = null
     private var refreshJob: Job? = null
     private var midnight: Job? = null
     private var generation = 0L
     private var snapshot: ForecastSnapshot? = null
-    private var selection: LocalDate? = null
     private var windowStart: LocalDate? = null
     private var rolloverPending = false
 
     init {
-        val fields = saved.get<ArrayList<String>>("city")
-        if (fields != null)
-            runCatching {
-                val city =
-                    City(
-                        fields[0].toLong(),
-                        fields[1],
-                        fields[2].ifEmpty { null },
-                        fields[3].ifEmpty { null },
-                        fields[4].toDouble(),
-                        fields[5].toDouble(),
-                        fields[6],
-                    )
-                val date = saved.get<String>("date")?.let { LocalDate.parse(it) }
-                open(city, date)
-            }
+        savedState.restore()?.let { open(it.city, it.selectedDate) }
     }
 
     fun open(city: City, restoredDate: LocalDate? = null) {
-        cancelJobs()
         generation++
+        cancelJobs()
         snapshot = null
         rolloverPending = false
         val window = dateWindow(clock, city.zone)
         windowStart = window.first()
-        selection = restoredDate?.takeIf { it in window } ?: window.first()
-        saved["city"] =
-            arrayListOf(
-                city.id.toString(),
-                city.name,
-                city.region ?: "",
-                city.country ?: "",
-                city.latitude.toString(),
-                city.longitude.toString(),
-                city.timezone,
-            )
-        saved["date"] = selection.toString()
-        mutable.value = ForecastState(city, ForecastContent.InitialLoading(city))
+        val selection = restoredDate?.takeIf { it in window } ?: window.first()
+        savedState.save(city, selection)
+        mutable.value = ForecastState.Open(city, selection)
         observe(city, generation)
         scheduleMidnight()
     }
 
-    private fun observe(city: City, identity: Long) {
+    private fun update(transform: (ForecastState.Open) -> ForecastState.Open) {
+        mutable.update { state -> (state as? ForecastState.Open)?.let(transform) ?: state }
+    }
+
+    private fun observe(city: City, identity: Long, refreshOnFirstEmission: Boolean = true) {
         collection?.cancel()
-        collection =
-            viewModelScope.launch(dispatchers.main) {
-                var first = true
-                repository
-                    .observeForecast(city.id)
-                    .catch { e ->
-                        if (e is CancellationException) throw e
-                        if (identity == generation) fail(AppFailure(FailureKind.STORAGE, e.message))
+        val job = viewModelScope.launch(dispatchers.main, start = CoroutineStart.LAZY) {
+            var first = true
+            repository.observeForecast(city.id)
+                .catch { e ->
+                    if (e is CancellationException) throw e
+                    if (identity == generation) fail(AppFailure(FailureKind.STORAGE, e.message))
+                }
+                .collect { value ->
+                    currentCoroutineContext().ensureActive()
+                    if (identity != generation) return@collect
+                    snapshot = value
+                    publish()
+                    if (first) {
+                        first = false
+                        if (refreshOnFirstEmission) refresh()
                     }
-                    .collect { value ->
-                        currentCoroutineContext().ensureActive()
-                        if (identity != generation) return@collect
-                        snapshot = value
-                        publish()
-                        if (first) {
-                            first = false
-                            refresh()
-                        }
-                    }
-            }
+                }
+        }
+        collection = job
+        job.start()
     }
 
     private fun publish() {
-        val city = state.value.city ?: return
-        val data = snapshot
-        if (data == null) {
-            mutable.update { it.copy(content = ForecastContent.InitialLoading(city)) }
-            return
+        val open = current ?: return
+        val data = snapshot ?: return
+        val previous = open.content as? ForecastContent.Ready
+        val window = dateWindow(clock, open.city.zone)
+        val selection = open.selectedDate.takeIf { it in window } ?: window.first()
+        savedState.select(selection)
+        val days = window.map { date ->
+            val weather = data.days[date]
+            val old = previous?.days?.firstOrNull { it.date == date }
+            if (old != null && old.weather == weather) old
+            else ForecastDayUi(date, weather, weather?.let { ActivityScorer.rank(it) }.orEmpty())
         }
-        val previous = state.value.content as? ForecastContent.Ready
-        val window = dateWindow(clock, city.zone)
-        if (selection !in window) selection = window.first()
-        saved["date"] = selection.toString()
-        val days =
-            window.map { date ->
-                val weather = data.days[date]
-                val old = previous?.days?.firstOrNull { it.date == date }
-                if (old != null && old.weather == weather) old
-                else
-                    ForecastDayUi(
-                        date,
-                        weather,
-                        weather?.let { ActivityScorer.rank(it) } ?: emptyList(),
-                    )
-            }
-        mutable.update {
+        update {
             it.copy(
-                content =
-                    ForecastContent.Ready(data.city, days, selection!!, data.lastSuccessfulUpdate)
+                selectedDate = selection,
+                content = ForecastContent.Ready(days, data.lastSuccessfulUpdate),
             )
         }
     }
 
     fun select(date: LocalDate) {
-        val ready = state.value.content as? ForecastContent.Ready ?: return
+        val ready = current?.content as? ForecastContent.Ready ?: return
         if (ready.days.none { it.date == date }) return
-        selection = date
-        saved["date"] = date.toString()
-        mutable.update { it.copy(content = ready.copy(selectedDate = date)) }
+        savedState.select(date)
+        update { it.copy(selectedDate = date) }
     }
 
     fun refresh() {
-        val city = state.value.city ?: return
+        val open = current ?: return
         if (refreshJob?.isActive == true) return
-        val failure = (state.value.refresh as? RefreshStatus.Failed)?.failure
+        val failure = (open.refresh as? RefreshStatus.Failed)?.failure
         if (failure?.retryAt?.isAfter(clock.instant()) == true) return
         val identity = generation
-        mutable.update {
+        update {
             it.copy(
                 refresh = RefreshStatus.Refreshing,
-                content =
-                    if (it.content is ForecastContent.InitialError)
-                        ForecastContent.InitialLoading(city)
-                    else it.content,
+                content = if (it.content is ForecastContent.InitialError)
+                    ForecastContent.InitialLoading else it.content,
             )
         }
-        if (collection?.isActive != true) observe(city, identity)
-        refreshJob =
-            viewModelScope.launch(dispatchers.main) {
-                val result = repository.refresh(city)
+        if (collection?.isActive != true) observe(open.city, identity, false)
+        // Assign before starting so an immediate dispatcher cannot restore an old job reference.
+        val job = viewModelScope.launch(dispatchers.main, start = CoroutineStart.LAZY) {
+            try {
+                val result = repository.refresh(open.city)
                 currentCoroutineContext().ensureActive()
                 if (identity != generation) return@launch
                 when (result) {
-                    is RefreshOutcome.Success ->
-                        mutable.update { it.copy(refresh = RefreshStatus.Idle) }
+                    is RefreshOutcome.Success -> update { it.copy(refresh = RefreshStatus.Idle) }
                     is RefreshOutcome.Failed -> fail(result.failure)
                 }
-                refreshJob = null
-                if (rolloverPending) {
-                    rolloverPending = false
-                    refresh()
+            } catch (e: CancellationException) {
+                currentCoroutineContext().ensureActive()
+                if (identity == generation) fail(AppFailure(FailureKind.CANCELLED))
+            } finally {
+                if (identity == generation) {
+                    refreshJob = null
+                    if (currentCoroutineContext().isActive && rolloverPending) {
+                        rolloverPending = false
+                        refresh()
+                    }
                 }
             }
+        }
+        refreshJob = job
+        job.start()
     }
 
     private fun fail(failure: AppFailure) {
-        mutable.update { old ->
-            old.copy(
+        update {
+            it.copy(
                 refresh = RefreshStatus.Failed(failure),
-                content =
-                    if (old.content is ForecastContent.Ready) old.content
-                    else ForecastContent.InitialError(old.city!!, failure),
+                content = if (it.content is ForecastContent.Ready) it.content
+                    else ForecastContent.InitialError(failure),
             )
         }
     }
@@ -220,10 +197,15 @@ class ForecastViewModel(
     }
 
     fun reconcileDate() {
-        val city = state.value.city ?: return
-        val today = dateWindow(clock, city.zone).first()
+        val open = current ?: return
+        val window = dateWindow(clock, open.city.zone)
+        val today = window.first()
         if (today != windowStart) {
             windowStart = today
+            if (open.selectedDate !in window) {
+                savedState.select(today)
+                update { it.copy(selectedDate = today) }
+            }
             publish()
             if (refreshJob?.isActive == true) rolloverPending = true else refresh()
         }
@@ -231,34 +213,32 @@ class ForecastViewModel(
 
     private fun scheduleMidnight() {
         midnight?.cancel()
-        val city = state.value.city ?: return
-        midnight =
-            viewModelScope.launch(dispatchers.main) {
-                while (isActive) {
-                    val next =
-                        LocalDate.now(clock.withZone(city.zone))
-                            .plusDays(1)
-                            .atStartOfDay(city.zone)
-                            .toInstant()
-                    delay(Duration.between(clock.instant(), next).toMillis().coerceAtLeast(1))
-                    reconcileDate()
-                }
+        val city = current?.city ?: return
+        midnight = viewModelScope.launch(dispatchers.main) {
+            while (isActive) {
+                val next = LocalDate.now(clock.withZone(city.zone)).plusDays(1)
+                    .atStartOfDay(city.zone).toInstant()
+                delay(Duration.between(clock.instant(), next).toMillis().coerceAtLeast(1))
+                reconcileDate()
             }
+        }
     }
 
     fun leave() {
         generation++
         cancelJobs()
         snapshot = null
-        selection = null
-        saved.remove<ArrayList<String>>("city")
-        saved.remove<String>("date")
-        mutable.value = ForecastState()
+        rolloverPending = false
+        savedState.clear()
+        mutable.value = ForecastState.Closed
     }
 
     private fun cancelJobs() {
         collection?.cancel()
         refreshJob?.cancel()
         midnight?.cancel()
+        collection = null
+        refreshJob = null
+        midnight = null
     }
 }

@@ -92,6 +92,7 @@ enum class FailureKind {
     MALFORMED_RESPONSE,
     UNUSABLE_FORECAST,
     STORAGE,
+    CANCELLED,
 }
 
 data class AppFailure(

@@ -4,22 +4,16 @@ import android.content.Context
 import androidx.lifecycle.*
 import androidx.lifecycle.viewmodel.CreationExtras
 import androidx.room.Room
+import com.example.weatherpal.core.AppDispatchers
 import com.example.weatherpal.data.local.*
 import com.example.weatherpal.data.remote.*
 import com.example.weatherpal.data.repository.CachedWeatherRepository
+import com.example.weatherpal.data.repository.RemoteCityRepository
 import com.example.weatherpal.domain.model.CachePolicy
 import com.example.weatherpal.domain.repository.*
 import com.example.weatherpal.ui.forecast.ForecastViewModel
 import com.example.weatherpal.ui.search.SearchViewModel
 import java.time.Clock
-import kotlinx.coroutines.CoroutineDispatcher
-import kotlinx.coroutines.Dispatchers
-
-data class AppDispatchers(
-    val main: CoroutineDispatcher = Dispatchers.Main.immediate,
-    val io: CoroutineDispatcher = Dispatchers.IO,
-    val computation: CoroutineDispatcher = Dispatchers.Default,
-)
 
 class AppContainer(context: Context) {
     val clock: Clock = Clock.systemUTC()

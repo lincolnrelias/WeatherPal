@@ -32,7 +32,7 @@ import kotlinx.coroutines.flow.filter
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ForecastScreen(
-    state: ForecastState,
+    state: ForecastState.Open,
     clock: Clock,
     onSelect: (LocalDate) -> Unit,
     onRefresh: () -> Unit,
@@ -40,7 +40,7 @@ fun ForecastScreen(
     val shortViewport = LocalConfiguration.current.screenHeightDp < 500
     val compact = shortViewport || LocalDensity.current.fontScale > 1.5f
     when (val content = state.content) {
-        is ForecastContent.InitialLoading ->
+        ForecastContent.InitialLoading ->
             Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -48,7 +48,7 @@ fun ForecastScreen(
                 ) {
                     CircularProgressIndicator(Modifier.size(32.dp), strokeWidth = 2.dp)
                     Text(
-                        "A little inspiration for ${content.city.name}",
+                        "A little inspiration for ${state.city.name}",
                         style = MaterialTheme.typography.headlineSmall,
                     )
                     Text(
@@ -65,7 +65,7 @@ fun ForecastScreen(
                 }
             }
         is ForecastContent.Ready ->
-            key(content.city.id) {
+            key(state.city.id) {
                 val failure = (state.refresh as? RefreshStatus.Failed)?.failure
                 PullToRefreshBox(
                     isRefreshing = state.refresh is RefreshStatus.Refreshing,
@@ -90,11 +90,11 @@ fun ForecastScreen(
                                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 ) {
                                     Text(
-                                        content.city.name,
+                                        state.city.name,
                                         style = MaterialTheme.typography.headlineSmall,
                                     )
                                     Text(
-                                        content.city.description(),
+                                        state.city.description(),
                                         Modifier.weight(1f),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -107,14 +107,14 @@ fun ForecastScreen(
                                 ) {
                                     if (!compact) Eyebrow("YOUR NEXT DAY OUT")
                                     Text(
-                                        content.city.name,
+                                        state.city.name,
                                         style =
                                             if (compact) MaterialTheme.typography.headlineSmall
                                             else MaterialTheme.typography.headlineLarge,
                                     )
-                                    if (content.city.description().isNotBlank())
+                                    if (state.city.description().isNotBlank())
                                         Text(
-                                            content.city.description(),
+                                            state.city.description(),
                                             style = MaterialTheme.typography.bodyMedium,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         )
@@ -145,16 +145,16 @@ fun ForecastScreen(
                                 }
                             }
                         }
-                        DateCarousel(content, onSelect, Modifier.weight(1f), compact)
+                        DateCarousel(state, content, onSelect, Modifier.weight(1f), compact)
                     }
                 }
             }
-        null -> Unit
     }
 }
 
 @Composable
 private fun DateCarousel(
+    state: ForecastState.Open,
     ready: ForecastContent.Ready,
     onSelect: (LocalDate) -> Unit,
     modifier: Modifier,
@@ -163,15 +163,15 @@ private fun DateCarousel(
     val dates = ready.days.map { it.date }
     val pager =
         rememberPagerState(
-            initialPage = dates.indexOf(ready.selectedDate).coerceAtLeast(0),
+            initialPage = dates.indexOf(state.selectedDate).coerceAtLeast(0),
             pageCount = { dates.size },
         )
     var synchronizing by remember { mutableStateOf(false) }
     val select by rememberUpdatedState(onSelect)
-    LaunchedEffect(ready.selectedDate, dates) {
+    LaunchedEffect(state.selectedDate, dates) {
         synchronizing = true
         try {
-            val target = dates.indexOf(ready.selectedDate)
+            val target = dates.indexOf(state.selectedDate)
             if (target >= 0 && pager.currentPage != target) pager.animateScrollToPage(target)
         } finally {
             synchronizing = false
@@ -183,8 +183,8 @@ private fun DateCarousel(
             .collect { dates.getOrNull(it.first)?.let(select) }
     }
     val timeline = rememberLazyListState()
-    LaunchedEffect(ready.selectedDate, dates) {
-        val index = dates.indexOf(ready.selectedDate).coerceAtLeast(0)
+    LaunchedEffect(state.selectedDate, dates) {
+        val index = dates.indexOf(state.selectedDate).coerceAtLeast(0)
         val visible = timeline.layoutInfo.visibleItemsInfo
         // Keep the strip still when the selected tile is already completely visible.
         if (
@@ -209,7 +209,7 @@ private fun DateCarousel(
                     style = MaterialTheme.typography.titleSmall,
                 )
                 Text(
-                    ready.selectedDate.format(DateTimeFormatter.ofPattern("MMMM yyyy")),
+                    state.selectedDate.format(DateTimeFormatter.ofPattern("MMMM yyyy")),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -221,7 +221,7 @@ private fun DateCarousel(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             items(ready.days, key = { it.date.toString() }) { day ->
-                val selected = day.date == ready.selectedDate
+                val selected = day.date == state.selectedDate
                 Surface(
                     color =
                         if (selected) MaterialTheme.colorScheme.primary
@@ -282,12 +282,12 @@ private fun DateCarousel(
         Spacer(Modifier.height(4.dp))
         HorizontalPager(
             state = pager,
-            key = { "${ready.city.id}-${dates[it]}" },
+            key = { "${state.city.id}-${dates[it]}" },
             modifier = Modifier.fillMaxWidth().weight(1f),
             verticalAlignment = Alignment.Top,
         ) { index ->
             val day = ready.days[index]
-            holder.SaveableStateProvider("${ready.city.id}-${day.date}") { DailyPage(day, ready) }
+            holder.SaveableStateProvider("${state.city.id}-${day.date}") { DailyPage(day, ready, state.city) }
         }
     }
 }
@@ -302,7 +302,7 @@ private fun Modifier.selectableDate(selected: Boolean, date: LocalDate, onClick:
         }
 
 @Composable
-private fun DailyPage(day: ForecastDayUi, ready: ForecastContent.Ready) {
+private fun DailyPage(day: ForecastDayUi, ready: ForecastContent.Ready, city: City) {
     Column(
         Modifier.fillMaxSize()
             .testTag("forecast-${day.date}")
@@ -358,7 +358,7 @@ private fun DailyPage(day: ForecastDayUi, ready: ForecastContent.Ready) {
                     MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
-                    "Last successful update: ${updateFormat.withZone(ready.city.zone).format(ready.lastSuccessfulUpdate)}\n${ready.city.timezone} · Whole-day forecast, including elapsed hours.",
+                    "Last successful update: ${updateFormat.withZone(city.zone).format(ready.lastSuccessfulUpdate)}\n${city.timezone} · Whole-day forecast, including elapsed hours.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

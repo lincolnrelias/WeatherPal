@@ -30,10 +30,23 @@ One app module uses Compose, Material 3, MVVM, StateFlow, and constructor-based 
 - `data/remote` contains separate geocoding and forecast services, typed DTOs, validation, normalization, and transport failure translation.
 - `data/local` contains the exported Room v1 schema, transactional relation reads, and cache commits. City IDs identify entries; ISO local dates identify day rows.
 - `data/repository` coordinates refreshes, startup capacity pruning, cancellation, and committed success/failure outcomes.
+- `core/AppDispatchers` supplies the injectable UI dispatcher without depending on the composition root. Retrofit and Room own their asynchronous I/O; mapping and ranking remain bounded foreground work. Unused IO/computation dispatcher fields were removed.
 - `ui/search` and `ui/forecast` expose explicit ViewModel state and Compose screens. Presentation renders deterministic reason codes without displaying numerical scores.
 - `di/AppContainer` constructs one application-scoped database/client, repositories, Clock, dispatcher provider, cache policy, and saved-state-aware ViewModel factories.
 
 UI depends on repository interfaces. There is no direct UI networking, DAO access, DI framework, or forwarding-use-case layer. Room is the authoritative forecast stream; a network response is never independently published before persistence succeeds.
+
+```mermaid
+flowchart LR
+    Screens[Compose screens] --> VMs[ViewModels / StateFlow]
+    VMs --> Contracts[Domain repository contracts]
+    Repositories[Data repositories] -. implement .-> Contracts
+    Repositories --> Remote[Retrofit services / mapping]
+    Repositories --> Store[Room forecast store]
+    VMs --> Scoring[Pure domain scoring]
+```
+
+`AppContainer` wires these dependencies. Remote DTOs, services, HTTP client setup, failure translation, and mapping each have their own source file; geocoding's repository implementation lives in `data/repository`.
 
 ## API contracts and attribution
 
@@ -43,7 +56,7 @@ Search uses HTTPS GET `geocoding-api.open-meteo.com/v1/search` with trimmed, lib
 
 Forecast requests use HTTPS GET `api.open-meteo.com/v1/forecast` with the selected city's latitude/longitude, explicit IANA `timezone`, `forecast_days=7`, `timeformat=iso8601`, `temperature_unit=celsius`, `wind_speed_unit=kmh`, `precipitation_unit=mm`, `daily=temperature_2m_mean,precipitation_sum,wind_speed_10m_max,snowfall_sum`, and `hourly=snow_depth`. Provider grid coordinates do not replace city identity.
 
-Connect/read/total call timeouts are 10/15/20 seconds. Retrofit calls are cancellable. No application retry loop is used. OkHttp's standard connection recovery can try alternate addresses or recover a stale pooled socket within the same call timeout. HTTP 429 exposes a rate-limit message; Retry-After seconds and HTTP dates disable submission/retry until the injected device Clock reaches that time. Responses and diagnostics are not logged verbosely.
+Connect/read/total call timeouts are 10/15/20 seconds. Retrofit calls are cancellable. No automatic network retry loop is used. OkHttp's standard connection recovery can try alternate addresses or recover a stale pooled socket within the same call timeout. HTTP 429 exposes a rate-limit message. Each application-scoped repository retains Retry-After seconds or HTTP dates and rejects new requests until the injected device Clock reaches the deadline, including same-city reopening, other forecast cities, and changed search queries. Geocoding and forecast cooldowns are independent because they use separate hosts. The original failure/deadline reaches the UI for its countdown; a response without a usable deadline requires explicit retry. Cooldowns last for the current application process and are not persisted across process death. Responses and diagnostics are not logged verbosely.
 
 Require a matching timezone, nonempty strictly increasing unique daily date axis, matching lengths for present daily arrays, and supported daily units. Missing arrays/values remain unavailable. Invalid finite/nonnegative samples become unavailable individually. Optional malformed hourly snow data or unsupported depth units make depth unavailable. At least one activity must be computable in the current seven-day window; otherwise preserve the old cache and report failure. Accepted partial responses replace old values without filling gaps from older forecasts.
 
@@ -87,11 +100,13 @@ Favorable weather does not establish resorts, coastline access, waves, tides, wa
 
 Room stores up to three cities by default; `CachePolicy(maxCities=3)` is developer configuration, validated ≥1. Headers contain metadata and the last successful update in UTC epoch milliseconds; day rows use (city ID, ISO local date). The schema is exported under `app/schemas`; destructive migration is not enabled.
 
-Successful validated forecasts insert/update by ID. When full, a new city evicts the smallest successful timestamp, then smallest ID on ties. Shortcuts sort by successful timestamp descending, ID ascending. Opening/searching/typing/failure never changes recency. Startup capacity reduction prunes in a transaction before emitting shortcuts. Overlapping cities serialize writes; same-city callers join one refresh.
+Successful validated forecasts insert/update by ID. When full, a new city evicts the smallest successful timestamp, then smallest ID on ties. Shortcuts sort by successful timestamp descending, ID ascending. Opening/searching/typing/failure never changes recency. Startup capacity reduction prunes in a transaction before emitting shortcuts. Overlapping cities serialize writes; same-city callers join one live refresh. The first caller owns that refresh: cancelling a waiter leaves the owner running, and cancelling the owner makes active waiters start or join a replacement. Re-entry can replace an abandoned request while its cancellation cleanup is still running; the old request cannot publish or remove the replacement.
+
+Recent-place observation preserves its last successful shortcuts on storage failure. The separate **Retry recent places** action restarts observation, clears the storage error on a successful emission, and resumes subsequent updates. Persistent failures remain visible until another explicit retry. Forecast retry also restarts a failed forecast observer without scheduling a duplicate network request.
 
 Compare exact normalized fields (negative zero canonicalized), excluding provider timing and refresh metadata. Timestamp-only success leaves all day rows untouched. Changed dates update only changed columns; new dates insert and omitted dates delete. Metadata, changed rows, timestamp, and eviction commit atomically. Failed network/validation/storage/cancellation never publishes candidate data or advances the timestamp. Device time can repeat or move backward; timestamps are never artificially incremented.
 
-The screen projects today plus six dates using the city timezone. Uncovered/expired dates are explicitly unavailable. Today describes the whole-day forecast, including elapsed hours. Cached cities show content first and automatically refresh once. Initial errors are full-screen; refresh errors retain content with retry. Shared selected-date state synchronizes timeline and pager. Date/city keys and saveable page scroll state preserve navigation across refreshes. Equal immutable day UI values are reused.
+The screen projects today plus six dates using the city timezone. Uncovered/expired dates are explicitly unavailable. Today describes the whole-day forecast, including elapsed hours. Cached cities show content first and automatically refresh once. Initial errors are full-screen; refresh errors retain content with retry. `ForecastState` is explicitly Closed or Open. Open owns city identity and selected date once, with independent content and refresh states. A small saved-state adapter serializes named city/date fields, accepts the previous positional format, and defaults invalid/expired selections to today. Shared selected-date state synchronizes timeline and pager. Date/city keys and saveable page scroll state preserve navigation across refreshes. Equal immutable day UI values are reused.
 
 On resume and visible city-local midnight, reconcile the window, retain a still-valid selected date, otherwise select today, and refresh once. A rollover during an active refresh queues one refresh of the new window. Leaving cancels collection/network work and prevents stale publication. Rotation retains ViewModels; platform saved state restores a running city/date and search text after process death. A new launch starts at search.
 
@@ -104,6 +119,10 @@ On resume and visible city-local midnight, reconcile the window, retain a still-
 ```
 
 The connected suite requires a running API 24+ emulator/device visible to adb. Tests use JUnit, coroutines-test, handwritten fakes, MockWebServer, focused Room instrumentation, and Compose UI tests. They cover score thresholds, labels, worked examples, missing data, complementarity, medians/DST, URL parameters, response validation, transport recovery, cache eviction/rollback/selective writes/coherence/persistence, submission identity, cancellation, refresh preservation, saved state, rollover, and activity disclosure across ranking changes and date navigation. Coroutine timing uses injected dispatchers/Clock and virtual time rather than real sleeps.
+
+The current suite contains **46 unit tests and 11 connected tests**. Recovery regressions distinguish owner/waiter cancellation, delayed same-city re-entry, cache-specific retry, forecast observer recovery, immediate-main-dispatcher behavior, cooldowns across navigation/cities/queries, exact deadlines, named/legacy saved state, and presentation formatting. [Android checks](.github/workflows/android-checks.yml) builds debug and runs unit tests/lint on pushes and pull requests using JDK 21 and SDK 36; connected tests remain a local device check.
+
+Smoke test: install debug, search for Lisbon, open a forecast, change the selected date, and pull to refresh. Return to search and open the saved city with networking disabled: cached content should remain visible with a retry error. Re-enable networking and retry; the selected date should stay selected. Leave and immediately reopen during a refresh, then rotate the device. Confirm that loading ends and city/date remain correct. Storage failures and Retry-After are reproduced deterministically by the automated tests rather than by provoking the public service.
 
 Actual commands, counts, manual checks, environment limitations, and phase evidence are recorded in [docs/verification.md](docs/verification.md). Live API checks supplement deterministic fixtures; they are not test oracles. Full UI automation and snapshot tests are intentionally excluded.
 
