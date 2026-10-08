@@ -1,5 +1,7 @@
 # WeatherPal
 
+[Download the APK from GitHub Releases](https://github.com/lincolnrelias/WeatherPal/releases).
+
 A native Android app that searches cities with Open-Meteo and ranks skiing, surfing, outdoor sightseeing, and indoor sightseeing for seven city-local dates. It includes offline access to three recent cities, pull-to-refresh, light/dark themes, and expandable activity explanations. No backend or API key is required.
 
 <img src="docs/screenshots/search.png" width="280" alt="City search and recent places"> <img src="docs/screenshots/forecast.png" width="280" alt="Seven-day forecast and ranked activities">
