@@ -10,8 +10,9 @@ import androidx.compose.ui.graphics.Color
 @Composable
 fun WeatherPalTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = if (isSystemInDarkTheme()) darkColorScheme(primary = Color(0xFF8DD4C5))
-        else lightColorScheme(primary = Color(0xFF006B5D)),
+        colorScheme =
+            if (isSystemInDarkTheme()) darkColorScheme(primary = Color(0xFF8DD4C5))
+            else lightColorScheme(primary = Color(0xFF006B5D)),
         content = content,
     )
 }
